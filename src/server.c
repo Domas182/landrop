@@ -145,7 +145,8 @@ static int handle_client(int cfd, const char *dest_dir, bool overwrite) {
             double v=bps; 
             int ui=0; 
             while(v>=1024.0 && ui<4){
-                v/=1024.0;ui++;
+                v/=1024.0;
+                ui++;
             }
 
             snprintf(spd, sizeof(spd), "%.1f %s/s", v, u[ui]);

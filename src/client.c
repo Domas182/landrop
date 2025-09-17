@@ -16,7 +16,8 @@
 #include "common.h"
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s -h <host> -p <port> (-f <file> [-n <remote_name>] | -d <directory>)\n", prog);
+    fprintf(stderr, "Usage: %s -h <host> -p <port> (-f <file> [-f <file> ...] [-n <remote_name>] | -d <directory>)\n", prog);
+    fprintf(stderr, "       -f may be repeated to send multiple files. When multiple -f are used, -n is ignored.\n");
 }
 
 static int connect_to(const char *host, const char *port) {
@@ -278,25 +279,36 @@ static int send_one_file(const char *host, const char *port_str, const char *fil
 int main(int argc, char **argv) {
     const char *host = NULL;
     const char *port_str = NULL;
-    const char *file = NULL;
     const char *remote_name = NULL;
     const char *dir = NULL;
+
+    // Collect multiple -f occurrences
+    const char *files[1024];
+    int files_count = 0;
+
     int opt;
     while ((opt = getopt(argc, argv, "h:p:f:n:d:")) != -1) {
         switch (opt) {
             case 'h': host = optarg; break;
             case 'p': port_str = optarg; break;
-            case 'f': file = optarg; break;
+            case 'f':
+                if (files_count < (int)(sizeof(files)/sizeof(files[0]))) {
+                    files[files_count++] = optarg;
+                } else {
+                    fprintf(stderr, "Too many files specified with -f\n");
+                    return 1;
+                }
+                break;
             case 'n': remote_name = optarg; break;
             case 'd': dir = optarg; break;
             default: usage(argv[0]); return 1;
         }
     }
-    if (!host || !port_str || (!file && !dir)) {
+    if (!host || !port_str || (files_count == 0 && !dir)) {
         usage(argv[0]);
         return 1;
     }
-    if (file && dir) {
+    if (files_count > 0 && dir) {
         fprintf(stderr, "Specify either -f or -d, not both.\n");
         return 1;
     }
@@ -318,6 +330,19 @@ int main(int argc, char **argv) {
         return rc == 0 ? 0 : 1;
     }
 
-    // Single file mode
-    return send_one_file(host, port_str, file, remote_name);
+    // File mode: one or multiple files
+    if (files_count == 1) {
+        return send_one_file(host, port_str, files[0], remote_name);
+    }
+
+    if (remote_name) {
+        fprintf(stderr, "Warning: -n is ignored when sending multiple files with -f.\n");
+    }
+    int overall_rc = 0;
+    for (int i = 0; i < files_count; ++i) {
+        int rc = send_one_file(host, port_str, files[i], NULL);
+        if (rc != 0)
+            overall_rc = 1;
+    }
+    return overall_rc;
 }
