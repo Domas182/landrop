@@ -18,7 +18,10 @@
 #include "common.h"
 
 static volatile sig_atomic_t g_stop = 0;
-static void on_sigint(int sig) { (void)sig; g_stop = 1; }
+static void on_sigint(int sig) { 
+    (void)sig; 
+    g_stop = 1; 
+}
 
 static void usage(const char *prog) {
     fprintf(stderr, "Usage: %s -p <port> -d <dest_dir> [-o]\n", prog);
@@ -32,7 +35,8 @@ static int ensure_dir(const char *path) {
     if (stat(path, &st) == 0) {
         return S_ISDIR(st.st_mode) ? 0 : -1;
     }
-    if (errno != ENOENT) return -1;
+    if (errno != ENOENT) 
+        return -1;
     return mkdir(path, 0755);
 }
 
@@ -48,8 +52,14 @@ static int handle_client(int cfd, const char *dest_dir, bool overwrite) {
     }
     uint64_t be_size;
     uint16_t be_namelen;
-    if (read_full(cfd, &be_size, sizeof(be_size)) < 0) { perror("read size"); return -1; }
-    if (read_full(cfd, &be_namelen, sizeof(be_namelen)) < 0) { perror("read name len"); return -1; }
+    if (read_full(cfd, &be_size, sizeof(be_size)) < 0) { 
+        perror("read size"); 
+        return -1; 
+    }
+    if (read_full(cfd, &be_namelen, sizeof(be_namelen)) < 0) { 
+        perror("read name len"); 
+        return -1; 
+    }
     uint64_t filesize = be64_to_host(be_size);
     uint16_t namelen = ntohs(be_namelen);
     if (namelen == 0 || namelen > 4096) {
@@ -57,7 +67,9 @@ static int handle_client(int cfd, const char *dest_dir, bool overwrite) {
         return -1;
     }
     char *name = (char *)malloc((size_t)namelen + 1);
-    if (!name) { perror("malloc name"); return -1; }
+    if (!name) { perror("malloc name"); 
+        return -1; 
+    }
     if (read_full(cfd, name, namelen) < 0) {
         perror("read name");
         free(name);
@@ -94,7 +106,8 @@ static int handle_client(int cfd, const char *dest_dir, bool overwrite) {
 
     uint64_t left = filesize;
     uint64_t received = 0;
-    struct timespec ts0, ts_last; clock_gettime(CLOCK_MONOTONIC, &ts0); ts_last = ts0;
+    struct timespec ts0, ts_last; clock_gettime(CLOCK_MONOTONIC, &ts0); 
+    ts_last = ts0;
     while (left > 0) {
         size_t chunk = left > BUF_SZ ? BUF_SZ : (size_t)left;
         if (read_full(cfd, buf, chunk) < 0) {
@@ -116,17 +129,41 @@ static int handle_client(int cfd, const char *dest_dir, bool overwrite) {
         double since_last = (ts.tv_sec - ts_last.tv_sec) + (ts.tv_nsec - ts_last.tv_nsec)/1e9;
         if (since_last >= 0.2 || left == 0) {
             double pct = filesize ? (100.0 * (double)received / (double)filesize) : 100.0;
-            int barw = 40; int fill = (int)(pct/100.0*barw + 0.5); if (fill>barw) fill=barw;
-            char bar[41]; for (int i=0;i<barw;++i) bar[i] = i<fill ? '=' : ' '; bar[barw]='\0';
+            int barw = 40; 
+            int fill = (int)(pct/100.0*barw + 0.5); 
+            if (fill>barw) 
+                fill=barw;
+
+            char bar[41]; 
+            for (int i=0;i<barw;++i) 
+                bar[i] = i<fill ? '=' : ' '; 
+            
+            bar[barw]='\0';
             double bps = elapsed>0 ? (double)received/elapsed : 0.0;
             const char *u[] = {"B","KiB","MiB","GiB","TiB"};
-            char spd[32]; double v=bps; int ui=0; while(v>=1024.0 && ui<4){v/=1024.0;ui++;}
+            char spd[32]; 
+            double v=bps; 
+            int ui=0; 
+            while(v>=1024.0 && ui<4){
+                v/=1024.0;ui++;
+            }
+
             snprintf(spd, sizeof(spd), "%.1f %s/s", v, u[ui]);
             // Minimal human sizes for received/total
             char rstr[32], tstr[32];
-            double vr=(double)received; int ur=0; while(vr>=1024.0 && ur<4){vr/=1024.0;ur++;}
+            double vr=(double)received; 
+            int ur=0; 
+            while(vr>=1024.0 && ur<4){
+                vr/=1024.0;
+                ur++;
+            }
             snprintf(rstr,sizeof(rstr),"%.1f %s",vr,u[ur]);
-            double vt=(double)filesize; int ut=0; while(vt>=1024.0 && ut<4){vt/=1024.0;ut++;}
+            double vt=(double)filesize; 
+            int ut=0; 
+            while(vt>=1024.0 && ut<4){
+                vt/=1024.0;
+                ut++;
+            }
             snprintf(tstr,sizeof(tstr),"%.1f %s",vt,u[ut]);
             fprintf(stderr, "\r[%-40s] %6.2f%%  %s  %s/%s", bar, pct, spd, rstr, tstr);
             fflush(stderr);
@@ -135,7 +172,9 @@ static int handle_client(int cfd, const char *dest_dir, bool overwrite) {
     }
 
     free(buf);
-    if (close(fd) < 0) { perror("close dest"); }
+    if (close(fd) < 0) { 
+        perror("close dest"); 
+    }
 
     unsigned char status = 0;
     if (write_full(cfd, &status, 1) < 0) {
@@ -172,7 +211,10 @@ int main(int argc, char **argv) {
     signal(SIGINT, on_sigint);
 
     int sfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sfd < 0) { perror("socket"); return 1; }
+    if (sfd < 0) { 
+        perror("socket"); 
+        return 1; 
+    }
 
     int yes = 1;
     if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {

@@ -11,7 +11,8 @@ int read_full(int fd, void *buf, size_t n) {
     while (left > 0) {
         ssize_t r = read(fd, p, left);
         if (r < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR) 
+                continue;
             return -1;
         }
         if (r == 0) {
@@ -30,7 +31,8 @@ int write_full(int fd, const void *buf, size_t n) {
     while (left > 0) {
         ssize_t r = write(fd, p, left);
         if (r < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR) 
+                continue;
             return -1;
         }
         p += r;
@@ -77,7 +79,8 @@ int sanitize_filename(const char *name, char *out, size_t out_sz) {
     }
     for (size_t i = 0; i < len; ++i) {
         char c = name[i];
-        if (c == '/' || c == '\\') c = '_';
+        if (c == '/' || c == '\\') 
+            c = '_';
         out[i] = c;
     }
     out[len] = '\0';

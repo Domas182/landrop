@@ -33,7 +33,8 @@ static int connect_to(const char *host, const char *port) {
     int cfd = -1;
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
         cfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (cfd < 0) continue;
+        if (cfd < 0) 
+            continue;
         if (connect(cfd, ai->ai_addr, ai->ai_addrlen) == 0) {
             freeaddrinfo(res);
             return cfd;
@@ -54,7 +55,10 @@ static double now_sec(void) {
 static void human_bytes(double v, char *out, size_t n) {
     const char *u[] = {"B", "KiB", "MiB", "GiB", "TiB"};
     int i = 0;
-    while (v >= 1024.0 && i < 4) { v /= 1024.0; i++; }
+    while (v >= 1024.0 && i < 4) { 
+        v /= 1024.0; 
+        i++; 
+    }
     snprintf(out, n, "%.1f %s", v, u[i]);
 }
 
@@ -62,9 +66,12 @@ static void print_progress(uint64_t done, uint64_t total, double elapsed) {
     double pct = total ? (100.0 * (double)done / (double)total) : 100.0;
     int barw = 40;
     int fill = (int)(pct / 100.0 * barw + 0.5);
-    if (fill > barw) fill = barw;
+    if (fill > barw) 
+        fill = barw;
+
     char bar[41];
-    for (int i = 0; i < barw; ++i) bar[i] = (i < fill) ? '=' : ' ';
+    for (int i = 0; i < barw; ++i) 
+        bar[i] = (i < fill) ? '=' : ' ';
     bar[barw] = '\0';
     double bps = elapsed > 0 ? (double)done / elapsed : 0.0;
     char spd[32], dstr[32], tstr[32];
@@ -90,11 +97,19 @@ int main(int argc, char **argv) {
             default: usage(argv[0]); return 1;
         }
     }
-    if (!host || !port_str || !file) { usage(argv[0]); return 1; }
+    if (!host || !port_str || !file) { 
+        usage(argv[0]); 
+        return 1; 
+    }
 
     struct stat st;
-    if (stat(file, &st) != 0) { perror("stat file"); return 1; }
-    if (!S_ISREG(st.st_mode)) { fprintf(stderr, "Not a regular file\n"); return 1; }
+    if (stat(file, &st) != 0) { 
+        perror("stat file"); 
+        return 1; 
+    }
+    if (!S_ISREG(st.st_mode)) { 
+        fprintf(stderr, "Not a regular file\n"); 
+        return 1; }
     uint64_t filesize = (uint64_t)st.st_size;
 
     const char *base = remote_name ? remote_name : path_basename(file);
@@ -110,28 +125,66 @@ int main(int argc, char **argv) {
     }
 
     int cfd = connect_to(host, port_str);
-    if (cfd < 0) { perror("connect"); return 1; }
+    if (cfd < 0) { perror("connect"); 
+        return 1; 
+    }
 
     // Send header
-    if (write_full(cfd, LANDROP_MAGIC, LANDROP_MAGIC_LEN) < 0) { perror("send magic"); close(cfd); return 1; }
+    if (write_full(cfd, LANDROP_MAGIC, LANDROP_MAGIC_LEN) < 0) { 
+        perror("send magic"); 
+        close(cfd); 
+        return 1; 
+    }
+
     uint64_t be_size = host_to_be64(filesize);
     uint16_t be_namelen = htons((uint16_t)name_len);
-    if (write_full(cfd, &be_size, sizeof(be_size)) < 0) { perror("send size"); close(cfd); return 1; }
-    if (write_full(cfd, &be_namelen, sizeof(be_namelen)) < 0) { perror("send name len"); close(cfd); return 1; }
-    if (write_full(cfd, sname, name_len) < 0) { perror("send name"); close(cfd); return 1; }
+    if (write_full(cfd, &be_size, sizeof(be_size)) < 0) { 
+        perror("send size"); 
+        close(cfd); 
+        return 1; 
+    }
+
+    if (write_full(cfd, &be_namelen, sizeof(be_namelen)) < 0) { 
+        perror("send name len"); 
+        close(cfd); 
+        return 1; 
+    }
+
+    if (write_full(cfd, sname, name_len) < 0) { 
+        perror("send name"); 
+        close(cfd); 
+        return 1; 
+    }
 
     // Send file content
     FILE *fp = fopen(file, "rb");
-    if (!fp) { perror("fopen file"); close(cfd); return 1; }
+    if (!fp) { 
+        perror("fopen file"); 
+        close(cfd); 
+        return 1; 
+    }
+
     const size_t BUF_SZ = 64 * 1024;
     char *buf = (char *)malloc(BUF_SZ);
-    if (!buf) { perror("malloc"); fclose(fp); close(cfd); return 1; }
+    if (!buf) { 
+        perror("malloc"); 
+        fclose(fp); 
+        close(cfd); 
+        return 1; 
+    }
+
     size_t r;
     uint64_t sent = 0;
     double t0 = now_sec();
     double last = t0;
     while ((r = fread(buf, 1, BUF_SZ, fp)) > 0) {
-        if (write_full(cfd, buf, r) < 0) { perror("send data"); free(buf); fclose(fp); close(cfd); return 1; }
+        if (write_full(cfd, buf, r) < 0) { 
+            perror("send data"); 
+            free(buf); 
+            fclose(fp); 
+            close(cfd); 
+            return 1; 
+        }
         sent += (uint64_t)r;
         double t = now_sec();
         if (t - last >= 0.1 || sent == filesize) {
@@ -139,13 +192,23 @@ int main(int argc, char **argv) {
             last = t;
         }
     }
-    if (ferror(fp)) { perror("fread"); free(buf); fclose(fp); close(cfd); return 1; }
+    if (ferror(fp)) { 
+        perror("fread"); 
+        free(buf); 
+        fclose(fp); 
+        close(cfd); 
+        return 1; 
+    }
     free(buf);
     fclose(fp);
 
     // Receive 1-byte status
     unsigned char status;
-    if (read_full(cfd, &status, 1) < 0) { perror("recv status"); close(cfd); return 1; }
+    if (read_full(cfd, &status, 1) < 0) { 
+        perror("recv status"); 
+        close(cfd); 
+        return 1; 
+    }
     close(cfd);
     if (status != 0) {
         fprintf(stderr, "\n");
