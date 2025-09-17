@@ -20,13 +20,13 @@ bin/native/landropd -p 9000 [or whatever port you like] -d /tmp/recv [-o]
 2) Send from the client (sender):
 ```
 bin/native/landrop -h 127.0.0.1 -p 9000 -f /path/to/file [-n remote_name]
-bin/native/landrop -h 127.0.0.1 -p 9000 -f file1 -f file2 -f file3
+bin/native/landrop -h 127.0.0.1 -p 9000 -f file1 file2 file3
 bin/native/landrop -h 127.0.0.1 -p 9000 -d /path/to/dir
 ```
 - `-h`: server host or IP
 - `-p`: server port
-- `-f`: path to local file (regular file); may be repeated to send multiple files
-- `-n`: optional remote filename (sanitized). Ignored if multiple `-f` are provided
+- `-f`: path to local file (regular file); you can list multiple files after a single `-f`
+- `-n`: optional remote filename (sanitized). Ignored if multiple files are provided with `-f`
 - `-d`: send all files in directory (recursively)
 
 Both sides print a progress bar with percent, speed, and bytes transferred.

@@ -16,8 +16,9 @@
 #include "common.h"
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s -h <host> -p <port> (-f <file> [-f <file> ...] [-n <remote_name>] | -d <directory>)\n", prog);
-    fprintf(stderr, "       -f may be repeated to send multiple files. When multiple -f are used, -n is ignored.\n");
+    fprintf(stderr, "Usage: %s -h <host> -p <port> (-f <file> [file ...] [-n <remote_name>] | -d <directory>)\n", prog);
+    fprintf(stderr, "       After -f you can list multiple files without repeating -f.\n");
+    fprintf(stderr, "       When multiple files are given, -n is ignored.\n");
 }
 
 static int connect_to(const char *host, const char *port) {
@@ -297,6 +298,15 @@ int main(int argc, char **argv) {
                 } else {
                     fprintf(stderr, "Too many files specified with -f\n");
                     return 1;
+                }
+                // Also accept subsequent non-option args as files until next option
+                while (optind < argc && argv[optind][0] != '-') {
+                    if (files_count < (int)(sizeof(files)/sizeof(files[0]))) {
+                        files[files_count++] = argv[optind++];
+                    } else {
+                        fprintf(stderr, "Too many files specified with -f\n");
+                        return 1;
+                    }
                 }
                 break;
             case 'n': remote_name = optarg; break;
