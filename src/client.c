@@ -16,7 +16,7 @@
 #include "common.h"
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s -h <host> -p <port> -f <file> [-n <remote_name>]\n", prog);
+    fprintf(stderr, "Usage: %s -h <host> -p <port> (-f <file> [-n <remote_name>] | -d <directory>)\n", prog);
 }
 
 static int connect_to(const char *host, const char *port) {
@@ -82,34 +82,95 @@ static void print_progress(uint64_t done, uint64_t total, double elapsed) {
     fflush(stderr);
 }
 
-int main(int argc, char **argv) {
-    const char *host = NULL;
-    const char *port_str = NULL;
-    const char *file = NULL;
-    const char *remote_name = NULL;
-    int opt;
-    while ((opt = getopt(argc, argv, "h:p:f:n:")) != -1) {
-        switch (opt) {
-            case 'h': host = optarg; break;
-            case 'p': port_str = optarg; break;
-            case 'f': file = optarg; break;
-            case 'n': remote_name = optarg; break;
-            default: usage(argv[0]); return 1;
+// Forward decls
+static int send_one_file(const char *host, const char *port_str, const char *file, const char *remote_name);
+
+#include <dirent.h>
+#include <limits.h>
+
+static int is_dot_or_dotdot(const char *name) {
+    return (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
+}
+
+static int send_directory_recursive(const char *host, const char *port_str, const char *root, const char *subrel) {
+    char path[PATH_MAX];
+    if (subrel && subrel[0] != '\0') {
+        if (snprintf(path, sizeof(path), "%s/%s", root, subrel) >= (int)sizeof(path)) {
+            fprintf(stderr, "Path too long: %s/%s\n", root, subrel);
+            return -1;
+        }
+    } else {
+        if (snprintf(path, sizeof(path), "%s", root) >= (int)sizeof(path)) {
+            fprintf(stderr, "Path too long: %s\n", root);
+            return -1;
         }
     }
-    if (!host || !port_str || !file) { 
-        usage(argv[0]); 
-        return 1; 
-    }
 
-    struct stat st;
-    if (stat(file, &st) != 0) { 
-        perror("stat file"); 
-        return 1; 
+    DIR *dir = opendir(path);
+    if (!dir) {
+        perror("opendir");
+        return -1;
     }
-    if (!S_ISREG(st.st_mode)) { 
-        fprintf(stderr, "Not a regular file\n"); 
-        return 1; }
+    int rc = 0;
+    struct dirent *de;
+    while ((de = readdir(dir)) != NULL) {
+        if (is_dot_or_dotdot(de->d_name)) 
+            continue;
+
+        char child_rel[PATH_MAX];
+        if (subrel && subrel[0] != '\0') {
+            if (snprintf(child_rel, sizeof(child_rel), "%s/%s", subrel, de->d_name) >= (int)sizeof(child_rel)) {
+                fprintf(stderr, "Relative path too long (skip): %s/%s\n", subrel, de->d_name);
+                rc = -1;
+                continue;
+            }
+        } else {
+            if (snprintf(child_rel, sizeof(child_rel), "%s", de->d_name) >= (int)sizeof(child_rel)) {
+                fprintf(stderr, "Relative path too long (skip): %s\n", de->d_name);
+                rc = -1;
+                continue;
+            }
+        }
+
+        char child_path[PATH_MAX];
+        if (snprintf(child_path, sizeof(child_path), "%s/%s", root, child_rel) >= (int)sizeof(child_path)) {
+            fprintf(stderr, "Path too long (skip): %s/%s\n", root, child_rel);
+            rc = -1;
+            continue;
+        }
+
+        struct stat st;
+        if (stat(child_path, &st) != 0) {
+            perror("stat");
+            rc = -1;
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            if (send_directory_recursive(host, port_str, root, child_rel) != 0)
+                rc = -1;
+        } else if (S_ISREG(st.st_mode)) {
+            // Use relative path as remote name (slashes will be sanitized server-side)
+            fprintf(stderr, "Sending: %s\n", child_rel);
+            if (send_one_file(host, port_str, child_path, child_rel) != 0)
+                rc = -1;
+        } else {
+            // skip non-regular files
+        }
+    }
+    closedir(dir);
+    return rc;
+}
+
+static int send_one_file(const char *host, const char *port_str, const char *file, const char *remote_name) {
+    struct stat st;
+    if (stat(file, &st) != 0) {
+        perror("stat file");
+        return 1;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "Not a regular file: %s\n", file);
+        return 1;
+    }
     uint64_t filesize = (uint64_t)st.st_size;
 
     const char *base = remote_name ? remote_name : path_basename(file);
@@ -125,52 +186,49 @@ int main(int argc, char **argv) {
     }
 
     int cfd = connect_to(host, port_str);
-    if (cfd < 0) { perror("connect"); 
-        return 1; 
+    if (cfd < 0) {
+        perror("connect");
+        return 1;
     }
 
-    // Send header
-    if (write_full(cfd, LANDROP_MAGIC, LANDROP_MAGIC_LEN) < 0) { 
-        perror("send magic"); 
-        close(cfd); 
-        return 1; 
+    if (write_full(cfd, LANDROP_MAGIC, LANDROP_MAGIC_LEN) < 0) {
+        perror("send magic");
+        close(cfd);
+        return 1;
     }
 
     uint64_t be_size = host_to_be64(filesize);
     uint16_t be_namelen = htons((uint16_t)name_len);
-    if (write_full(cfd, &be_size, sizeof(be_size)) < 0) { 
-        perror("send size"); 
-        close(cfd); 
-        return 1; 
+    if (write_full(cfd, &be_size, sizeof(be_size)) < 0) {
+        perror("send size");
+        close(cfd);
+        return 1;
+    }
+    if (write_full(cfd, &be_namelen, sizeof(be_namelen)) < 0) {
+        perror("send name len");
+        close(cfd);
+        return 1;
+    }
+    if (write_full(cfd, sname, name_len) < 0) {
+        perror("send name");
+        close(cfd);
+        return 1;
     }
 
-    if (write_full(cfd, &be_namelen, sizeof(be_namelen)) < 0) { 
-        perror("send name len"); 
-        close(cfd); 
-        return 1; 
-    }
-
-    if (write_full(cfd, sname, name_len) < 0) { 
-        perror("send name"); 
-        close(cfd); 
-        return 1; 
-    }
-
-    // Send file content
     FILE *fp = fopen(file, "rb");
-    if (!fp) { 
-        perror("fopen file"); 
-        close(cfd); 
-        return 1; 
+    if (!fp) {
+        perror("fopen file");
+        close(cfd);
+        return 1;
     }
 
     const size_t BUF_SZ = 64 * 1024;
     char *buf = (char *)malloc(BUF_SZ);
-    if (!buf) { 
-        perror("malloc"); 
-        fclose(fp); 
-        close(cfd); 
-        return 1; 
+    if (!buf) {
+        perror("malloc");
+        fclose(fp);
+        close(cfd);
+        return 1;
     }
 
     size_t r;
@@ -178,12 +236,12 @@ int main(int argc, char **argv) {
     double t0 = now_sec();
     double last = t0;
     while ((r = fread(buf, 1, BUF_SZ, fp)) > 0) {
-        if (write_full(cfd, buf, r) < 0) { 
-            perror("send data"); 
-            free(buf); 
-            fclose(fp); 
-            close(cfd); 
-            return 1; 
+        if (write_full(cfd, buf, r) < 0) {
+            perror("send data");
+            free(buf);
+            fclose(fp);
+            close(cfd);
+            return 1;
         }
         sent += (uint64_t)r;
         double t = now_sec();
@@ -192,29 +250,74 @@ int main(int argc, char **argv) {
             last = t;
         }
     }
-    if (ferror(fp)) { 
-        perror("fread"); 
-        free(buf); 
-        fclose(fp); 
-        close(cfd); 
-        return 1; 
+    if (ferror(fp)) {
+        perror("fread");
+        free(buf);
+        fclose(fp);
+        close(cfd);
+        return 1;
     }
     free(buf);
     fclose(fp);
 
-    // Receive 1-byte status
     unsigned char status;
-    if (read_full(cfd, &status, 1) < 0) { 
-        perror("recv status"); 
-        close(cfd); 
-        return 1; 
+    if (read_full(cfd, &status, 1) < 0) {
+        perror("recv status");
+        close(cfd);
+        return 1;
     }
     close(cfd);
     if (status != 0) {
-        fprintf(stderr, "\n");
-        fprintf(stderr, "Server reported error (code %u)\n", (unsigned)status);
+        fprintf(stderr, "\nServer reported error (code %u)\n", (unsigned)status);
         return 1;
     }
     fprintf(stderr, "\nFile sent successfully (%s, %lu bytes)\n", sname, (unsigned long)filesize);
     return 0;
+}
+
+int main(int argc, char **argv) {
+    const char *host = NULL;
+    const char *port_str = NULL;
+    const char *file = NULL;
+    const char *remote_name = NULL;
+    const char *dir = NULL;
+    int opt;
+    while ((opt = getopt(argc, argv, "h:p:f:n:d:")) != -1) {
+        switch (opt) {
+            case 'h': host = optarg; break;
+            case 'p': port_str = optarg; break;
+            case 'f': file = optarg; break;
+            case 'n': remote_name = optarg; break;
+            case 'd': dir = optarg; break;
+            default: usage(argv[0]); return 1;
+        }
+    }
+    if (!host || !port_str || (!file && !dir)) {
+        usage(argv[0]);
+        return 1;
+    }
+    if (file && dir) {
+        fprintf(stderr, "Specify either -f or -d, not both.\n");
+        return 1;
+    }
+
+    if (dir) {
+        if (remote_name) {
+            fprintf(stderr, "Warning: -n ignored when using -d (directory mode).\n");
+        }
+        struct stat st;
+        if (stat(dir, &st) != 0) { 
+            perror("stat dir"); 
+            return 1; 
+        }
+        if (!S_ISDIR(st.st_mode)) { 
+            fprintf(stderr, "Not a directory: %s\n", dir); 
+            return 1; 
+        }
+        int rc = send_directory_recursive(host, port_str, dir, "");
+        return rc == 0 ? 0 : 1;
+    }
+
+    // Single file mode
+    return send_one_file(host, port_str, file, remote_name);
 }

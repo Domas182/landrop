@@ -17,14 +17,16 @@ bin/native/landropd -p 9000 [or whatever port you like] -d /tmp/recv [-o]
 - `-d`: destination directory for received files
 - `-o`: overwrite existing files (default: fail if exists)
 
-2) Send a file from the client (sender):
+2) Send from the client (sender):
 ```
-bin/native/landrop -h 127.0.0.1 -p 9000 [host port]-f /path/to/file [-n remote_name]
+bin/native/landrop -h 127.0.0.1 -p 9000 -f /path/to/file [-n remote_name]
+bin/native/landrop -h 127.0.0.1 -p 9000 -d /path/to/dir
 ```
 - `-h`: server host or IP
 - `-p`: server port
 - `-f`: path to local file (regular file)
 - `-n`: optional remote filename (sanitized)
+- `-d`: send all files in directory (recursively)
 
 Both sides print a progress bar with percent, speed, and bytes transferred.
 
@@ -38,3 +40,4 @@ Both sides print a progress bar with percent, speed, and bytes transferred.
 - Single‑threaded; handles one connection at a time.
 - Cross‑compiles for aarch64 with a suitable toolchain (personal use-case).
 
+When using `-d`, each file is sent as a separate upload. Relative paths are included in the remote filename but slashes are sanitized, so files are flattened on the receiver side. Consider `-o` on the server to overwrite existing files.
